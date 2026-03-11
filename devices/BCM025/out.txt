@@ -1,0 +1,22 @@
+[2026-03-10 21:53:02]  El volumen de la unidad D es Documents
+ El número de serie del volumen es: 2657-F8A9
+
+ Directorio de D:\Programas\ftp-terminal
+
+10/03/2026  09:52 p. m.    <DIR>          .
+10/03/2026  09:43 p. m.    <DIR>          ..
+10/03/2026  08:01 p. m.               127 .gitignore
+10/03/2026  09:51 p. m.    <DIR>          build
+10/03/2026  09:03 p. m.               754 config.ini
+10/03/2026  08:19 p. m.    <DIR>          devices
+10/03/2026  09:52 p. m.    <DIR>          dist
+10/03/2026  07:47 p. m.    <DIR>          docs
+10/03/2026  08:59 p. m.    <DIR>          ftp_terminal
+10/03/2026  09:51 p. m.         8,580,910 main.exe
+10/03/2026  08:31 p. m.             3,343 main.py
+10/03/2026  09:51 p. m.               694 main.spec
+10/03/2026  08:21 p. m.             8,547 README.md
+10/03/2026  07:47 p. m.               245 requirements.txt
+10/03/2026  08:21 p. m.               363 run_agent.py
+               8 archivos      8,594,983 bytes
+               7 dirs  448,859,873,280 bytes libres
