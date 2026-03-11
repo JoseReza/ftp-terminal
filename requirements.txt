@@ -1,0 +1,4 @@
+# Solo biblioteca estándar de Python (ftplib, subprocess, etc.)
+# No se requieren dependencias externas para funcionamiento básico.
+# Opcional: para cliente con prompt mejorado (historial, colores)
+# readline  # Unix; en Windows no aplica

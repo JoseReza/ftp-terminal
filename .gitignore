@@ -1,0 +1,11 @@
+# No subir archivos con credenciales
+.env
+config.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
