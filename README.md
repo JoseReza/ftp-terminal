@@ -7,9 +7,9 @@ Terminal remota por **FTP** cuando en tu red solo está permitido el puerto 21 (
 - **Cliente** (en tu PC): escribe comandos en `{dispositivo}/in.txt` y lee la salida de `{dispositivo}/out.txt`.
 - **Agente** (en el dispositivo): cada pocos segundos lee `in.txt`, ejecuta el comando en la shell local (cmd en Windows, sh en Linux) y escribe el resultado en `out.txt`.
 
-La **ruta base** donde están todas las carpetas de dispositivos se define con **`FTP_TERMINAL_ROOT`** (casi siempre fija en todos los equipos). Puede ser:
-- **Modo FTP:** ruta en el servidor (ej. `devices` → `devices/BCM025/`).
-- **Modo local:** carpeta en disco (ej. `D:\devices` o `/mnt/ftp/devices`), útil si ya tienes el FTP montado como carpeta.
+La **ruta base** donde están todas las carpetas de dispositivos se define en **`config.ini`** (clave `root`). Puede ser:
+- **Modo FTP:** URL en el servidor (ej. `ftp://usuario:contraseña@ftp.miempresa.com:21/devices`).
+- **Modo local:** ruta en disco (ej. `D:/devices` o `/mnt/ftp/devices`), útil si ya tienes el FTP montado como carpeta.
 
 Compatible con **Windows y Linux** en cliente y agente.
 
@@ -18,18 +18,51 @@ Compatible con **Windows y Linux** en cliente y agente.
 - Python 3.6+ (solo biblioteca estándar).
 - Un servidor FTP accesible desde tu PC y desde cada dispositivo (mismo servidor o uno por dispositivo, según tu infraestructura).
 
-## Configuración con archivo (.env o config.ini)
+## Compilación (ejecutable con PyInstaller)
 
-Puedes guardar la configuración en un archivo en lugar de definir variables de entorno a mano:
+Puedes generar un ejecutable para no depender de tener Python instalado en cada máquina. El proyecto incluye `main.spec` para PyInstaller.
 
-- **.env** — Copia `.env.example` a `.env` y edita los valores (una línea por variable).
-- **config.ini** — Copia `config.ini.example` a `config.ini` y edita la sección `[ftp_terminal]`.
+**Windows (cmd o PowerShell):**
 
-El programa busca primero `.env` y, si no existe, `config.ini` en el directorio actual o en la raíz del proyecto. Las variables que ya estén definidas en el sistema no se sobrescriben.
+```cmd
+pip install pyinstaller
+pyinstaller main.spec
+```
 
-- **Una sola variable `root`:** si tiene `://` se usa FTP (ej. `ftp://usuario:contraseña@ftp.miempresa.com:21/devices`); si no, es ruta local (ej. `D:/devices`). No hace falta `ftp = true/false` ni `host` por separado.
+El ejecutable queda en `dist\main.exe`. Copia `config.ini` (o `config.ini.example` renombrado) junto al `.exe` para que lea la configuración.
 
-**No subas `.env` ni `config.ini` al repositorio** (contienen contraseña); sí puedes subir los `.example`.
+**Linux:**
+
+```bash
+pip install pyinstaller
+pyinstaller main.spec
+```
+
+El ejecutable queda en `dist/main`. Copia `config.ini` en el mismo directorio (o en el directorio de trabajo desde el que lo ejecutes) para que lea la configuración.
+
+Uso del ejecutable:
+
+- **Agente (en el dispositivo):** `main.exe agent` (Windows) o `./main agent` (Linux).
+- **Cliente:** `main.exe client BCM025` (Windows) o `./main client BCM025` (Linux).
+
+## Configuración: `config.ini`
+
+Copia `config.ini.example` a `config.ini` en la raíz del proyecto (o en el directorio desde el que ejecutas) y edita la sección `[ftp_terminal]`. El programa busca `config.ini` en el directorio actual y en la raíz del proyecto.
+
+Ejemplo mínimo:
+
+```ini
+[ftp_terminal]
+# Ruta base: URL FTP (con ://) o ruta local (sin ://)
+root = ftp://usuario:contraseña@ftp.miempresa.com:21/devices
+# En el dispositivo, nombre único (ej. hostname o ID)
+device = BCM025
+```
+
+- **`root`:** si contiene `://` se usa FTP (ej. `ftp://usuario:contraseña@host:21/devices`); si no, es ruta local (ej. `D:/devices`, `/mnt/ftp/devices`). Opcionalmente puedes usar `host`, `user`, `password`, `port` por separado en lugar de la URL.
+- **`device`:** nombre del dispositivo (obligatorio en el agente; en el cliente es el dispositivo al que te conectas por defecto o el que pasas como argumento).
+
+**No subas `config.ini` al repositorio** (contiene contraseña); sí puedes subir `config.ini.example`.
 
 ## Uso rápido
 
@@ -38,7 +71,7 @@ El programa busca primero `.env` y, si no existe, `config.ini` en el directorio 
 Todo se ejecuta desde un solo programa:
 
 ```bash
-# En el dispositivo: arrancar el agente (lee config.ini o .env)
+# En el dispositivo: arrancar el agente (lee config.ini)
 python main.py agent
 
 # En tu PC: abrir la terminal hacia un dispositivo
@@ -49,87 +82,54 @@ python main.py client BCM025 --cmd "dir"
 
 Si no pasas subcomando y das solo el nombre del dispositivo, se asume cliente: `python main.py BCM025` = `python main.py client BCM025`.
 
+**Cambiar de dispositivo sin salir:** dentro de la sesión del cliente puedes usar **`device <nombre>`** o **`switch <nombre>`** (ej. `device BCM026`, `switch BCM026`) para pasar a otro dispositivo sin cerrar la terminal. Requiere tener `config.ini` con `root` (y credenciales si usas FTP).
+
 ### 1. En el dispositivo (una vez por equipo)
 
-Tiene que estar corriendo el **agente** para que ejecute lo que tú envías.
+Tiene que estar corriendo el **agente** para que ejecute lo que tú envías. Configura `config.ini` con `root` y `device` (nombre único por equipo, ej. hostname o ID). El agente crea la carpeta del dispositivo si no existe.
 
-**Opción A – Línea de comandos**
+**Linux / WSL:**
 
 ```bash
-# Linux / WSL
-python3 -m ftp_terminal.agent FTP_HOST usuario contraseña BCM025
-
-# Windows (cmd)
-python -m ftp_terminal.agent FTP_HOST usuario contraseña BCM025
+python3 main.py agent
+# o  python3 run_agent.py
 ```
 
-**Opción B – Variables de entorno (recomendado; misma config en todos los dispositivos)**
-
-`FTP_TERMINAL_ROOT` es la ruta base donde están (o estarán) las carpetas de cada dispositivo; suele ser fija.
-
-**Modo FTP:**
-```bash
-# Linux
-export FTP_TERMINAL_ROOT=devices
-export FTP_TERMINAL_HOST=ftp.miempresa.com
-export FTP_TERMINAL_USER=usuario
-export FTP_TERMINAL_PASS=tu_contraseña
-export FTP_TERMINAL_DEVICE=BCM025
-python main.py agent
-# o  python run_agent.py
-```
+**Windows (cmd):**
 
 ```cmd
-:: Windows
-set FTP_TERMINAL_ROOT=devices
-set FTP_TERMINAL_HOST=ftp.miempresa.com
-set FTP_TERMINAL_USER=usuario
-set FTP_TERMINAL_PASS=tu_contraseña
-set FTP_TERMINAL_DEVICE=BCM025
 python main.py agent
 ```
-
-**Modo local** (carpeta en disco, p. ej. espejo o montaje del FTP):
-```bash
-export FTP_TERMINAL_ROOT=/mnt/ftp/devices
-export FTP_TERMINAL_DEVICE=BCM025
-python main.py agent
-```
-
-```cmd
-set FTP_TERMINAL_ROOT=D:\devices
-set FTP_TERMINAL_DEVICE=BCM025
-python main.py agent
-```
-
-Sustituye `BCM025` por un nombre único por dispositivo (ej. hostname o ID). El agente crea la carpeta del dispositivo si no existe.
 
 ### 2. En tu PC (cuando quieras “entrar” al dispositivo)
 
-Solo necesitas el **cliente**.
+Solo necesitas el **cliente**. Con `config.ini` en la raíz (o en el directorio actual), indica el dispositivo:
 
-**Con FTP_TERMINAL_* ya configuradas** (misma ruta base, solo cambia el dispositivo):
+**Linux / WSL:**
 
 ```bash
-# Indicar solo el nombre del dispositivo
-python -m ftp_terminal.client BCM025
+python3 main.py client BCM025
 ```
 
-**Sin variables de entorno** (host, usuario y dispositivo por argumentos):
+**Windows (cmd):**
 
-```bash
-python -m ftp_terminal.client FTP_HOST usuario BCM025
+```cmd
+python main.py client BCM025
 ```
 
-Te pedirá la contraseña FTP (en modo FTP) y entrarás en una sesión donde cada línea que escribas se envía al dispositivo y la salida se muestra en pantalla. Comandos útiles: `dir`, `ls -la`, `type archivo.log`, `cat /var/log/app.log`, etc.
+Entrarás en una sesión donde cada línea que escribas se envía al dispositivo y la salida se muestra en pantalla. Comandos útiles: `dir`, `ls -la`, `type archivo.log`, `cat /var/log/app.log`, etc.
 
-### Cambiar de dispositivo en la misma sesión (desde BCM027 a BCM025/BCM026)
+### Cambiar de dispositivo en la misma sesión: `device` y `switch`
 
-Si ejecutas el cliente en un dispositivo (ej. BCM027) con las variables `FTP_TERMINAL_*` definidas, puedes conectarte primero a un dispositivo y **cambiar a otro sin salir**:
+Dentro de una sesión del cliente puedes **cambiar a otro dispositivo sin salir** usando:
+
+- **`device <nombre>`** — ej. `device BCM026`
+- **`switch <nombre>`** — ej. `switch BCM026`
+
+Ambos hacen lo mismo. Ejemplo:
 
 ```bash
-# En BCM027, con FTP_TERMINAL_* ya configuradas
-python -m ftp_terminal.client BCM025
+python main.py client BCM025
 ```
 
 En el prompt verás algo como `ftp-term [BCM025]>`. Para pasar a BCM026:
@@ -142,7 +142,7 @@ ftp-term [BCM026]> dir
 ...
 ```
 
-También vale `switch BCM026`. Los comandos que escribas a partir de ahí se ejecutan en el dispositivo actual (BCM026 hasta que cambies de nuevo).
+Los comandos que escribas a partir de ahí se ejecutan en el dispositivo actual (BCM026 hasta que cambies de nuevo). El cambio de dispositivo solo está disponible si el cliente usa `config.ini` (con `root` y credenciales si aplica).
 
 ## Montar FTP como carpeta (opcional)
 
@@ -159,7 +159,7 @@ Si prefieres que el dispositivo solo lea/escriba archivos en una carpeta montada
 
 ### Comandos bloqueados en el agente
 
-Para evitar que la sesión quede colgada, el agente **no ejecuta** editores ni programas interactivos, por ejemplo: `vim`, `vi`, `nano`, `less`, `more`, `top`, `htop`, `man`, `ssh`, `screen`, `tmux`, etc. Si alguien los intenta, verá un mensaje sugiriendo alternativas (`cat`/`type` para ver archivos, `head`/`tail`, `grep`). Puedes añadir más con la variable de entorno `FTP_TERMINAL_BLOCKED` (lista separada por comas).
+Para evitar que la sesión quede colgada, el agente **no ejecuta** editores ni programas interactivos, por ejemplo: `vim`, `vi`, `nano`, `less`, `more`, `top`, `htop`, `man`, `ssh`, `screen`, `tmux`, etc. Si alguien los intenta, verá un mensaje sugiriendo alternativas (`cat`/`type` para ver archivos, `head`/`tail`, `grep`). Para añadir más comandos bloqueados, consulta la configuración del agente en el código.
 
 ## Alternativas que podrías valorar
 
@@ -170,10 +170,12 @@ Para evitar que la sesión quede colgada, el agente **no ejecuta** editores ni p
 ## Estructura del repo
 
 - `main.py` – Entrada única: `python main.py agent` o `python main.py client [dispositivo]`.
+- `main.spec` – Especificación de PyInstaller para generar el ejecutable.
 - `ftp_terminal/client.py` – Cliente (terminal).
 - `ftp_terminal/agent.py` – Agente (en cada dispositivo).
 - `ftp_terminal/backend.py` – Backends FTP y local.
 - `run_agent.py` – Atajo para el agente (`python run_agent.py` = `python main.py agent`).
+- `config.ini.example` – Plantilla de configuración (copiar a `config.ini`).
 - `docs/PROTOCOLO.md` – Detalle del protocolo.
 
 Si quieres extender (varios comandos en cola, timeouts distintos, etc.), se puede hacer sobre esta base sin cambiar el esquema FTP.
@@ -182,19 +184,27 @@ Si quieres extender (varios comandos en cola, timeouts distintos, etc.), se pued
 
 ## Un solo comando (scripts)
 
-Para automatizar (p. ej. extraer un log sin sesión interactiva):
+Para automatizar (p. ej. extraer un log sin sesión interactiva), usa `config.ini` y:
+
+**Linux / WSL:**
 
 ```bash
-python -m ftp_terminal.client ftp.miempresa.com usuario BCM025 --cmd "type C:\logs\app.log"
-# En Linux en el dispositivo:
-# python -m ftp_terminal.client ftp.miempresa.com usuario BCM025 --cmd "cat /var/log/app.log"
+python3 main.py client BCM025 --cmd "cat /var/log/app.log"
+```
+
+**Windows:**
+
+```cmd
+python main.py client BCM025 --cmd "type C:\logs\app.log"
 ```
 
 ---
 
 ## Dejar el agente corriendo en el dispositivo
 
+Con `config.ini` en su sitio, haz que el agente se ejecute al arranque:
+
 - **Windows:** Programador de tareas o un servicio (NSSM, etc.) para ejecutar `python main.py agent` al inicio.
-- **Linux:** systemd o cron `@reboot` con las variables de entorno y `python3 main.py agent`.
+- **Linux:** systemd o cron `@reboot` con `python3 main.py agent` (el agente lee `config.ini` del directorio de trabajo o de la raíz del proyecto).
 
 Así el dispositivo siempre está “escuchando” comandos por FTP y no tienes que levantar el agente a mano cada vez.
