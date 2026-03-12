@@ -61,6 +61,7 @@ device = BCM025
 
 - **`root`:** si contiene `://` se usa FTP (ej. `ftp://usuario:contraseña@host:21/devices`); si no, es ruta local (ej. `D:/devices`, `/mnt/ftp/devices`). Opcionalmente puedes usar `host`, `user`, `password`, `port` por separado en lugar de la URL.
 - **`device`:** nombre del dispositivo (obligatorio en el agente; en el cliente es el dispositivo al que te conectas por defecto o el que pasas como argumento).
+- **`max_transfer_size`:** límite en bytes para transferencias agente→cliente (archivos y carpetas comprimidas). Por defecto 52428800 (50 MB). Ej.: `104857600` = 100 MB.
 
 **No subas `config.ini` al repositorio** (contiene contraseña); sí puedes subir `config.ini.example`.
 
@@ -143,6 +144,15 @@ ftp-term [BCM026]> dir
 ```
 
 Los comandos que escribas a partir de ahí se ejecutan en el dispositivo actual (BCM026 hasta que cambies de nuevo). El cambio de dispositivo solo está disponible si el cliente usa `config.ini` (con `root` y credenciales si aplica).
+
+### Descargar archivos o carpetas del agente al cliente
+
+Puedes traer un archivo o una **carpeta** desde la máquina del agente (el dispositivo remoto) a tu PC con:
+
+- **`getfile <ruta>`** — ej. `getfile C:\logs\app.log` (archivo) o `getfile C:\logs` (carpeta)
+- **`download <ruta>`** — mismo comportamiento
+
+La ruta es la que ve el agente en su disco. Los archivos se guardan en el directorio actual del cliente. Si la ruta es una **carpeta**, el agente la comprime en .zip, la envía y el cliente la extrae automáticamente en una subcarpeta con el mismo nombre. El límite (por defecto 50 MB) se configura en `config.ini` con **`max_transfer_size`** (en bytes; ej. `52428800` = 50 MB).
 
 ## Montar FTP como carpeta (opcional)
 

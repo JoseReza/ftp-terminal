@@ -5,8 +5,10 @@ Escribe comandos en {dispositivo}/in.txt y lee la salida de {dispositivo}/out.tx
 Soporta FTP_TERMINAL_ROOT (ruta base en servidor FTP o carpeta local) y conexión por parámetros.
 """
 import os
+import re
 import sys
 import time
+import zipfile
 
 # Historial de comandos con ↑/↓ (Linux/Mac; en Windows no hay readline en la stdlib)
 try:
@@ -142,6 +144,44 @@ class FTPTerminalClient:
         if hasattr(self._backend, "disconnect"):
             self._backend.disconnect()
 
+    def download_remote_file(self, remote_path):
+        """
+        Pide al agente que suba el archivo y lo descarga a la carpeta actual.
+        remote_path: ruta del archivo en la máquina del agente.
+        Devuelve (éxito: bool, mensaje: str).
+        """
+        self.send_command("__getfile " + remote_path + "\n")
+        output, _ = self.wait_for_output()
+        if not output:
+            return False, "Sin respuesta del agente."
+        match = re.search(r"\[FILE_READY\]\s+(\S+)\s+(\d+)", output)
+        if not match:
+            if "Error:" in output:
+                return False, output.strip()
+            return False, "No se recibió confirmación de archivo (¿falló en el agente?)."
+        basename, size_str = match.group(1), match.group(2)
+        if not hasattr(self._backend, "read_download"):
+            return False, "Backend no soporta descarga de archivos."
+        data = self._backend.read_download(basename)
+        if not data:
+            return False, f"No se pudo leer el archivo '{basename}' del servidor."
+        local_path = os.path.join(os.getcwd(), basename)
+        try:
+            with open(local_path, "wb") as f:
+                f.write(data)
+            msg = f"Descargado: {basename} ({len(data)} bytes) → {local_path}"
+            if basename.lower().endswith(".zip"):
+                extract_dir = os.path.join(os.getcwd(), os.path.splitext(basename)[0])
+                try:
+                    with zipfile.ZipFile(local_path, "r") as zf:
+                        zf.extractall(extract_dir)
+                    msg += f" (carpeta extraída en {extract_dir})"
+                except (zipfile.BadZipFile, OSError):
+                    pass
+            return True, msg
+        except OSError as e:
+            return False, f"Error guardando archivo: {e}"
+
 
 def interactive_session(host=None, username=None, password=None, device_folder=None, port=21, base_path="", backend=None, backend_factory=None):
     if backend is not None:
@@ -161,6 +201,7 @@ def interactive_session(host=None, username=None, password=None, device_folder=N
     print(f"[ Conectado → dispositivo '{label}'{root_info} ]")
     if backend_factory:
         print("  Comando 'device <nombre>' para cambiar de dispositivo (ej: device BCM026).")
+    print("  Comando 'getfile <ruta>' o 'download <ruta>' para traer un archivo del agente.")
     print("  Escribe 'exit' o 'quit' para salir.\n")
     colors.init()
     try:
@@ -189,6 +230,17 @@ def interactive_session(host=None, username=None, password=None, device_folder=N
                     print(f"→ Cambiado a dispositivo '{target}'.\n")
                 else:
                     print("→ Cambio de dispositivo solo disponible con FTP_TERMINAL_* en env.\n")
+                continue
+            # Descargar archivo del agente al cliente: getfile <ruta> o download <ruta>
+            if (lower.startswith("getfile ") or lower.startswith("download ")) and len(line) > 8:
+                remote_path = line.split(None, 1)[1].strip().strip('"').strip("'")
+                print(colors.meta("(solicitando archivo al agente...)"))
+                ok, msg = client.download_remote_file(remote_path)
+                if ok:
+                    print(colors.meta(f"→ {msg}"))
+                else:
+                    print(colors.meta(f"→ Error: {msg}"))
+                print()
                 continue
             client.send_command(line + "\n")
             print(colors.meta("(esperando respuesta del dispositivo...)"))

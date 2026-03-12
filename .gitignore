@@ -1,6 +1,4 @@
 # No subir archivos con credenciales
-.env
-config.ini
 
 # Python
 __pycache__/

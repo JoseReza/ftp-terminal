@@ -24,6 +24,7 @@ CONFIG_KEYS = {
     "use_local": "FTP_TERMINAL_USE_LOCAL",
     "ftp": "FTP_TERMINAL_FTP",
     "enable_ftp": "FTP_TERMINAL_FTP",
+    "max_transfer_size": "FTP_TERMINAL_MAX_TRANSFER_SIZE",
 }
 
 

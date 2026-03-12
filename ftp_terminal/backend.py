@@ -60,6 +60,14 @@ class BaseBackend:
         """Escribe status.txt. status: 'IDLE' | 'RUNNING' | 'DONE'."""
         raise NotImplementedError
 
+    def write_download(self, filename, data):
+        """Escribe un archivo binario en la carpeta downloads/ del dispositivo (para transferencia agente→cliente)."""
+        raise NotImplementedError
+
+    def read_download(self, filename):
+        """Lee un archivo binario de la carpeta downloads/ del dispositivo. Devuelve bytes o None."""
+        raise NotImplementedError
+
     def disconnect(self):
         """Cierra conexión si aplica (FTP). En Local no hace nada."""
         pass
@@ -147,6 +155,31 @@ class LocalBackend(BaseBackend):
         self._ensure_device_dir()
         with open(self._path(FILE_STATUS), "w", encoding="utf-8") as f:
             f.write((status or "IDLE").strip().upper())
+
+    def _downloads_dir(self):
+        d = os.path.join(self._device_dir, "downloads")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def write_download(self, filename, data):
+        self._ensure_device_dir()
+        d = self._downloads_dir()
+        safe_name = os.path.basename(filename).replace("..", "")
+        path = os.path.join(d, safe_name)
+        with open(path, "wb") as f:
+            f.write(data if isinstance(data, bytes) else data.encode("utf-8"))
+
+    def read_download(self, filename):
+        d = os.path.join(self._device_dir, "downloads")
+        safe_name = os.path.basename(filename).replace("..", "")
+        path = os.path.join(d, safe_name)
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except OSError:
+            return None
 
 
 class FTPBackend(BaseBackend):
@@ -262,6 +295,47 @@ class FTPBackend(BaseBackend):
         self._cwd_device()
         raw = ((status or "IDLE").strip().upper()).encode("utf-8")
         self.ftp.storbinary(f"STOR {FILE_STATUS}", io.BytesIO(raw))
+
+    def _ensure_downloads_folder(self):
+        """Asegura que exista la carpeta downloads dentro del dispositivo."""
+        folder = self._device_folder()
+        parts = [p for p in (folder + "/downloads").split("/") if p]
+        for i in range(len(parts)):
+            sub = "/".join(parts[: i + 1])
+            try:
+                self.ftp.cwd(sub)
+            except ftplib.error_perm:
+                try:
+                    self.ftp.mkd(parts[i])
+                except ftplib.error_perm:
+                    pass
+                try:
+                    self.ftp.cwd(sub)
+                except ftplib.error_perm:
+                    pass
+        return self
+
+    def write_download(self, filename, data):
+        self._cwd_device()
+        self._ensure_downloads_folder()
+        safe_name = os.path.basename(filename).replace("..", "")
+        self.ftp.cwd(self._device_folder() + "/downloads")
+        self.ftp.storbinary(f"STOR {safe_name}", io.BytesIO(data if isinstance(data, bytes) else data.encode("utf-8")))
+        self._cwd_device()
+
+    def read_download(self, filename):
+        safe_name = os.path.basename(filename).replace("..", "")
+        try:
+            self.ftp.cwd(self._device_folder() + "/downloads")
+            bio = io.BytesIO()
+            self.ftp.retrbinary(f"RETR {safe_name}", bio.write)
+            self._cwd_device()
+            return bio.getvalue()
+        except ftplib.error_perm as e:
+            self._cwd_device()
+            if "550" in str(e):
+                return None
+            raise
 
     def disconnect(self):
         if self.ftp:

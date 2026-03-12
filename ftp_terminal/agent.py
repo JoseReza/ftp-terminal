@@ -5,11 +5,13 @@ Lee comandos de in.txt (por FTP o carpeta local), los ejecuta en la shell local
 y escribe la salida en out.txt.
 Soporta FTP_TERMINAL_ROOT: ruta base (FTP o local) donde están las carpetas por dispositivo.
 """
+import io
 import os
 import subprocess
 import sys
 import threading
 import time
+import zipfile
 from datetime import datetime
 
 from .backend import BaseBackend, get_backend_from_env
@@ -27,6 +29,53 @@ BLOCKED_COMMANDS = frozenset({
 })
 # Prefijos que no son el programa (ej. sudo nano -> programa = nano)
 COMMAND_PREFIXES = frozenset({"sudo", "env", "stdbuf", "script", "nice", "time", "nohup"})
+
+# Límite por defecto para transferencia agente → cliente (bytes). Configurable con FTP_TERMINAL_MAX_TRANSFER_SIZE.
+DEFAULT_MAX_TRANSFER_SIZE = 50 * 1024 * 1024  # 50 MB
+
+
+def _get_max_transfer_size():
+    """Lee el límite de transferencia desde env (config.ini). Valor en bytes."""
+    val = os.environ.get("FTP_TERMINAL_MAX_TRANSFER_SIZE", "").strip()
+    if not val:
+        return DEFAULT_MAX_TRANSFER_SIZE
+    try:
+        n = int(val)
+        return max(1024, n) if n > 0 else DEFAULT_MAX_TRANSFER_SIZE
+    except ValueError:
+        return DEFAULT_MAX_TRANSFER_SIZE
+
+
+def _zip_directory(dir_path, max_bytes):
+    """
+    Comprime una carpeta en un zip en memoria. Devuelve (bytes, None) o (None, mensaje_error).
+    Si el tamaño total supera max_bytes, devuelve error.
+    """
+    dir_path = os.path.normpath(os.path.abspath(dir_path))
+    if not os.path.isdir(dir_path):
+        return None, "No es un directorio"
+    buf = io.BytesIO()
+    total = 0
+    try:
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            base = os.path.dirname(dir_path)
+            name = os.path.basename(dir_path)
+            for root, _dummy, files in os.walk(dir_path):
+                for f in files:
+                    if total >= max_bytes:
+                        return None, f"Carpeta demasiado grande (límite {max_bytes // (1024*1024)} MB)"
+                    full = os.path.join(root, f)
+                    arcname = os.path.join(name, os.path.relpath(full, dir_path))
+                    arcname = arcname.replace("\\", "/")
+                    with open(full, "rb") as fp:
+                        data = fp.read()
+                    total += len(data)
+                    if total > max_bytes:
+                        return None, f"Carpeta demasiado grande (límite {max_bytes // (1024*1024)} MB)"
+                    zf.writestr(arcname, data)
+        return buf.getvalue(), None
+    except OSError as e:
+        return None, str(e)
 
 
 def _get_command_program(command):
@@ -331,16 +380,58 @@ class FTPTerminalAgent:
                     print(colors.meta(f"[Ejecutando] {cmd[:60]}{'...' if len(cmd) > 60 else ''}"))
                     print()
                     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    output = None
 
-                    def on_stream(text):
-                        self.write_output(f"[{ts}] {text}")
+                    # Comando especial: transferir archivo o carpeta del agente al cliente
+                    if cmd.strip().lower().startswith("__getfile "):
+                        path_part = cmd.split(None, 1)[1].strip().strip('"').strip("'")
+                        file_path = os.path.normpath(os.path.join(current_cwd, path_part)) if not os.path.isabs(path_part) else os.path.normpath(path_part)
+                        max_size = _get_max_transfer_size()
+                        try:
+                            if not os.path.exists(file_path):
+                                output = f"[{ts}] Error: no existe: {file_path}"
+                            elif not hasattr(self._backend, "write_download"):
+                                output = f"[{ts}] Error: backend no soporta transferencia de archivos."
+                            elif os.path.isfile(file_path):
+                                basename = os.path.basename(file_path)
+                                with open(file_path, "rb") as f:
+                                    data = f.read(max_size + 1)
+                                if len(data) > max_size:
+                                    output = f"[{ts}] Error: archivo mayor que {max_size // (1024*1024)} MB. No se transfiere."
+                                else:
+                                    self._backend.write_download(basename, data)
+                                    output = f"[{ts}] Archivo enviado a la carpeta de descargas.\n[FILE_READY] {basename} {len(data)}"
+                            else:
+                                # Carpeta: comprimir a zip y enviar
+                                zip_data, err = _zip_directory(file_path, max_size)
+                                if err:
+                                    output = f"[{ts}] Error: {err}"
+                                else:
+                                    basename = os.path.basename(file_path.rstrip(os.sep)) + ".zip"
+                                    self._backend.write_download(basename, zip_data)
+                                    output = f"[{ts}] Carpeta comprimida y enviada a la carpeta de descargas.\n[FILE_READY] {basename} {len(zip_data)}"
+                        except PermissionError:
+                            output = f"[{ts}] Error: sin permiso para leer: {file_path}"
+                        except OSError as e:
+                            output = f"[{ts}] Error leyendo: {e}"
+                        self.write_output(output)
+                        already_wrote = True
+                    else:
+                        def on_stream(text):
+                            self.write_output(f"[{ts}] {text}")
 
-                    output, current_cwd, already_wrote = _run_shell_command_with_cwd(
-                        cmd, cwd=current_cwd, stream_callback=on_stream
-                    )
+                        output, current_cwd, already_wrote = _run_shell_command_with_cwd(
+                            cmd, cwd=current_cwd, stream_callback=on_stream
+                        )
+
                     if not already_wrote:
                         text = (output or "").strip() or current_cwd
                         self.write_output(f"[{ts}] {text}")
+                    # Mostrar también la salida en la consola del agente (quien está frente a la máquina la ve)
+                    if output:
+                        print(colors.meta("--- salida enviada al cliente ---"))
+                        print(output)
+                        print(colors.meta("--- fin salida ---"))
                     self.clear_input()
                     self.write_status("DONE")
                     if hasattr(self._backend, "write_cwd"):
